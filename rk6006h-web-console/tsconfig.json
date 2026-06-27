@@ -1,0 +1,32 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "useDefineForClassFields": true,
+    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "skipLibCheck": true,
+
+    /* Bundler 模式 */
+    "moduleResolution": "Bundler",
+    "allowImportingTsExtensions": true,
+    "isolatedModules": true,
+    "moduleDetection": "force",
+    "noEmit": true,
+    "jsx": "react-jsx",
+
+    /* 严格类型（代码规范基石） */
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedIndexedAccess": true,
+
+    /* 路径别名（Bundler 模式下 paths 无需 baseUrl） */
+    "paths": {
+      "@/*": ["./src/*"]
+    },
+
+    "types": ["node", "web-bluetooth", "vitest/globals"]
+  },
+  "include": ["src", "vite.config.ts"]
+}
