@@ -1,4 +1,4 @@
-# 自动构建并部署到 GitHub Pages（Chromium 浏览器访问，Web Bluetooth 需 HTTPS）。
+# 自动构建并部署 rk6006h-web-console 到 GitHub Pages（Chromium 浏览器访问，Web Bluetooth 需 HTTPS）。
 # 文档：https://docs.github.com/en/pages/getting-started-with-github-pages/about-github-pages
 #
 # 部署地址：https://<owner>.github.io/<repo>/
@@ -6,6 +6,9 @@
 #
 # 前置条件（一次性设置）：
 #   仓库 Settings → Pages → Build and deployment → Source 选 "GitHub Actions"
+#
+# 注意：仓库根是 monorepo（含协议文档/分析脚本/上位机），web 上位机在子目录
+#       rk6006h-web-console/，所有 npm/build 步骤用 working-directory 切进去。
 
 name: Deploy to GitHub Pages
 
@@ -13,16 +16,16 @@ on:
   push:
     branches: [main]
     paths:
-      - "src/**"
-      - "public/**"
-      - "index.html"
-      - "package.json"
-      - "package-lock.json"
-      - "tsconfig.json"
-      - "vite.config.ts"
-      - "tailwind.config.js"
-      - "postcss.config.js"
-      - ".github/workflows/deploy.yml"
+      - 'rk6006h-web-console/src/**'
+      - 'rk6006h-web-console/public/**'
+      - 'rk6006h-web-console/index.html'
+      - 'rk6006h-web-console/package.json'
+      - 'rk6006h-web-console/package-lock.json'
+      - 'rk6006h-web-console/tsconfig.json'
+      - 'rk6006h-web-console/vite.config.ts'
+      - 'rk6006h-web-console/tailwind.config.js'
+      - 'rk6006h-web-console/postcss.config.js'
+      - '.github/workflows/deploy.yml'
   # 支持手动触发（Actions → Run workflow）
   workflow_dispatch:
 
@@ -40,6 +43,9 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: rk6006h-web-console
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -49,6 +55,8 @@ jobs:
         with:
           node-version: 20
           cache: npm
+          # package-lock.json 在子目录，需明确告知 cache 插件
+          cache-dependency-path: 'rk6006h-web-console/package-lock.json'
 
       - name: Install dependencies
         run: npm ci
@@ -69,7 +77,8 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: dist
+          # upload-pages-artifact 的 path 相对于仓库根，不是 working-directory
+          path: rk6006h-web-console/dist
 
   deploy:
     needs: build

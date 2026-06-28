@@ -22,6 +22,10 @@ playwright/.cache/
 .DS_Store
 Thumbs.db
 
+# AI / Agent 工具配置（不进仓库）
+.claude/
+.cursor/
+
 # 日志
 *.log
 npm-debug.log*
