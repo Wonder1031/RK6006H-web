@@ -26,6 +26,8 @@ export const POLL_START_ADDRESS = 0x0004;
 export const POLL_REGISTER_COUNT = 38;
 /** 默认轮询周期（ms） */
 export const POLL_INTERVAL_MS = 1000;
+/** 连续轮询失败达到此次数 → UI 标记「通信不稳定」 */
+export const POLL_UNSTABLE_THRESHOLD = 5;
 
 // ─── 报文日志 ────────────────────────────────────────────────────
 /** Console 环形缓冲最大条目数 */

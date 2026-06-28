@@ -1,0 +1,83 @@
+# 自动构建并部署到 GitHub Pages（Chromium 浏览器访问，Web Bluetooth 需 HTTPS）。
+# 文档：https://docs.github.com/en/pages/getting-started-with-github-pages/about-github-pages
+#
+# 部署地址：https://<owner>.github.io/<repo>/
+# 本仓库：https://wonder1031.github.io/RK6006H-web/
+#
+# 前置条件（一次性设置）：
+#   仓库 Settings → Pages → Build and deployment → Source 选 "GitHub Actions"
+
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "public/**"
+      - "index.html"
+      - "package.json"
+      - "package-lock.json"
+      - "tsconfig.json"
+      - "vite.config.ts"
+      - "tailwind.config.js"
+      - "postcss.config.js"
+      - ".github/workflows/deploy.yml"
+  # 支持手动触发（Actions → Run workflow）
+  workflow_dispatch:
+
+# GitHub Pages 部署所需的权限
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# 同一分支并发推送时，取消旧的运行，只部署最新版本
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Configure Pages
+        id: pages
+        uses: actions/configure-pages@v5
+        # 自动检测仓库类型并输出 base_path（本仓库 = /RK6006H-web/）
+
+      - name: Build
+        # Vite 会读取环境变量 base_path 作为构建 base，
+        # 若未注入则回退到 vite.config.ts 的默认值。
+        # 不用 --base 而是改用环境变量传参，避免 shell 对路径参数的转译干扰。
+        env:
+          base_path: ${{ steps.pages.outputs.base_path }}
+        run: npx vite build --base "$base_path"
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

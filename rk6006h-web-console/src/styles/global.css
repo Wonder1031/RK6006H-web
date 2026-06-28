@@ -2,116 +2,213 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ─── 主题 token（space-separated RGB，供 Tailwind <alpha-value> 透明度）───
+   :root 为深色（默认）；[data-theme='light'] 覆盖为浅色。
+   切换 document.documentElement.dataset.theme 即可整体换肤（utils/theme.ts）。 */
+:root {
+    --c-bg: 15 20 25; /* #0f1419 页面底色 */
+    --c-panel: 22 27 34; /* #161b22 面板 */
+    --c-panel-raised: 31 38 48; /* #1f2632 凸起面 */
+    --c-text: 226 232 240; /* slate-200 主文字 */
+    --c-text-muted: 148 163 184; /* slate-400 次文字 */
+    --c-text-faint: 100 116 139; /* slate-500 弱文字 */
+    --c-overlay: 255 255 255; /* 边框/高光叠加（深色=白） */
+    --c-thumb-border: 15 20 25; /* 滑块 thumb 描边底色 */
+    --c-scrollbar: 148 163 184; /* 滚动条/滑块轨道（深色=slate-400） */
+    color-scheme: dark;
+}
+
+:root[data-theme="light"] {
+    --c-bg: 226 232 240; /* slate-200 页面底色 */
+    --c-panel: 255 255 255; /* 纯白面板 */
+    --c-panel-raised: 241 245 249; /* slate-100 凸起面 */
+    --c-text: 30 41 59; /* slate-800 主文字 */
+    --c-text-muted: 71 85 105; /* slate-600 次文字 */
+    --c-text-faint: 100 116 139; /* slate-500 弱文字 */
+    --c-overlay: 15 23 42; /* slate-900 边框/高光叠加（浅色=深） */
+    --c-thumb-border: 255 255 255;
+    --c-scrollbar: 100 116 139; /* 浅色=slate-500，对比度更高 */
+    color-scheme: light;
+}
+
 @layer base {
-  html,
-  body,
-  #root {
-    height: 100%;
-  }
+    /* html 与 body 双重保险：整个视口背景由 token 驱动，
+     避免 overscroll 区/超出 body 高度时露出 html 的透明白底。
+     写在 CSS 里（而非依赖 index.html 的 Tailwind 类）可在首帧生效，防止白闪。 */
+    html {
+        background-color: rgb(var(--c-bg));
+    }
 
-  body {
-    margin: 0;
-    font-family:
-      'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue',
-      Arial, 'Noto Sans SC', sans-serif;
-  }
+    html,
+    body,
+    #root {
+        height: 100%;
+    }
 
-  /* ─── 滚动条：融入深色主题（细、半透明、悬停加深）─── */
-  * {
-    scrollbar-width: thin;
-    scrollbar-color: rgba(148, 163, 184, 0.22) transparent;
-  }
-  *::-webkit-scrollbar {
-    width: 8px;
-    height: 8px;
-  }
-  *::-webkit-scrollbar-track {
-    background: transparent;
-  }
-  *::-webkit-scrollbar-thumb {
-    background-color: rgba(148, 163, 184, 0.22);
-    border-radius: 9999px;
-    border: 2px solid transparent;
-    background-clip: content-box;
-  }
-  *::-webkit-scrollbar-thumb:hover {
-    background-color: rgba(148, 163, 184, 0.4);
-  }
-  *::-webkit-scrollbar-corner {
-    background: transparent;
-  }
+    body {
+        margin: 0;
+        background-color: rgb(var(--c-bg));
+        color: rgb(var(--c-text));
+        font-family:
+            "Inter",
+            system-ui,
+            -apple-system,
+            "Segoe UI",
+            Roboto,
+            "Helvetica Neue",
+            Arial,
+            "Noto Sans SC",
+            sans-serif;
+    }
 
-  /* ─── 隐藏 number 输入的浏览器默认增减按钮（用自定义控件）─── */
-  input[type='number']::-webkit-outer-spin-button,
-  input[type='number']::-webkit-inner-spin-button {
-    -webkit-appearance: none;
-    margin: 0;
-  }
-  input[type='number'] {
-    -moz-appearance: textfield;
-    appearance: textfield;
-  }
+    /* ─── 滚动条：跟随主题（细、半透明、悬停加深）─── */
+    * {
+        scrollbar-width: thin;
+        scrollbar-color: rgb(var(--c-scrollbar) / 0.4) transparent;
+    }
+    *::-webkit-scrollbar {
+        width: 8px;
+        height: 8px;
+    }
+    *::-webkit-scrollbar-track {
+        background: transparent;
+    }
+    *::-webkit-scrollbar-thumb {
+        background-color: rgb(var(--c-scrollbar) / 0.4);
+        border-radius: 9999px;
+        border: 2px solid transparent;
+        background-clip: content-box;
+    }
+    *::-webkit-scrollbar-thumb:hover {
+        background-color: rgb(var(--c-scrollbar) / 0.65);
+    }
+    *::-webkit-scrollbar-corner {
+        background: transparent;
+    }
+
+    /* ─── 隐藏 number 输入的浏览器默认增减按钮（用自定义控件）─── */
+    input[type="number"]::-webkit-outer-spin-button,
+    input[type="number"]::-webkit-inner-spin-button {
+        -webkit-appearance: none;
+        margin: 0;
+    }
+    input[type="number"] {
+        -moz-appearance: textfield;
+        appearance: textfield;
+    }
 }
 
 @layer components {
-  /* 通用面板容器 */
-  .panel {
-    @apply rounded-lg border border-white/5 bg-surface-panel p-4 shadow-lg;
-  }
+    /* 通用面板容器
+     边框/背景用原生 CSS（取主题变量），避免 @apply 对自定义颜色的
+     透明度修饰符支持不稳（border-overlay/5 在 dev PostCSS 下报错）。 */
+    .panel {
+        @apply rounded-lg p-4 shadow-lg;
+        background-color: rgb(var(--c-panel));
+        border: 1px solid rgb(var(--c-overlay) / 0.05);
+    }
 
-  /* 单调字体数值显示 */
-  .num {
-    @apply font-mono tabular-nums tracking-tight;
-  }
+    /* 单调字体数值显示 */
+    .num {
+        @apply font-mono tabular-nums tracking-tight;
+    }
 
-  /* ─── 高级范围滑块（.range）───
+    /* ─── 高级范围滑块（.range）───
      轨道用内联渐变背景呈现"已填充"效果；滑块颜色由 --range-thumb 控制。 */
-  .range {
-    -webkit-appearance: none;
-    appearance: none;
-    width: 100%;
-    height: 6px;
-    border-radius: 9999px;
-    background: rgba(148, 163, 184, 0.2);
-    outline: none;
-    cursor: pointer;
-  }
-  .range:disabled {
-    opacity: 0.4;
-    cursor: not-allowed;
-  }
-  .range::-webkit-slider-thumb {
-    -webkit-appearance: none;
-    appearance: none;
-    width: 16px;
-    height: 16px;
-    border-radius: 50%;
-    background: var(--range-thumb, #3b82f6);
-    border: 2px solid #0f1419;
-    box-shadow:
-      0 0 0 1px var(--range-thumb, #3b82f6),
-      0 0 10px color-mix(in srgb, var(--range-thumb, #3b82f6) 60%, transparent);
-    transition:
-      transform 0.1s ease,
-      box-shadow 0.1s ease;
-  }
-  .range::-webkit-slider-thumb:hover {
-    transform: scale(1.18);
-  }
-  .range:active::-webkit-slider-thumb {
-    transform: scale(1.25);
-  }
-  .range::-moz-range-thumb {
-    width: 14px;
-    height: 14px;
-    border-radius: 50%;
-    background: var(--range-thumb, #3b82f6);
-    border: 2px solid #0f1419;
-    box-shadow: 0 0 10px var(--range-thumb, #3b82f6);
-  }
-  .range::-moz-range-track {
-    height: 6px;
-    border-radius: 9999px;
-    background: rgba(148, 163, 184, 0.2);
-  }
+    .range {
+        -webkit-appearance: none;
+        appearance: none;
+        width: 100%;
+        height: 6px;
+        border-radius: 9999px;
+        background: rgb(var(--c-scrollbar) / 0.25);
+        outline: none;
+        cursor: pointer;
+    }
+    .range:disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
+    }
+    .range::-webkit-slider-thumb {
+        -webkit-appearance: none;
+        appearance: none;
+        width: 16px;
+        height: 16px;
+        border-radius: 50%;
+        background: var(--range-thumb, #3b82f6);
+        border: 2px solid rgb(var(--c-thumb-border));
+        box-shadow:
+            0 0 0 1px var(--range-thumb, #3b82f6),
+            0 0 10px
+                color-mix(in srgb, var(--range-thumb, #3b82f6) 60%, transparent);
+        transition:
+            transform 0.1s ease,
+            box-shadow 0.1s ease;
+    }
+    .range::-webkit-slider-thumb:hover {
+        transform: scale(1.18);
+    }
+    .range:active::-webkit-slider-thumb {
+        transform: scale(1.25);
+    }
+    .range::-moz-range-thumb {
+        width: 14px;
+        height: 14px;
+        border-radius: 50%;
+        background: var(--range-thumb, #3b82f6);
+        border: 2px solid rgb(var(--c-thumb-border));
+        box-shadow: 0 0 10px var(--range-thumb, #3b82f6);
+    }
+    .range::-moz-range-track {
+        height: 6px;
+        border-radius: 9999px;
+        background: rgb(var(--c-scrollbar) / 0.25);
+    }
+
+    /* ─── 模态弹窗（Modal / DialogHost）───
+       动画短碰不拖沣：背景 120ms 淡入、卡片 150ms 淡入+轻微上移。
+       使用 CSS animation 而非 transition+state，避免 React 节拍造成的首帧闪烁。 */
+    .modal-backdrop {
+        background-color: rgb(0 0 0 / 0.5);
+        backdrop-filter: blur(2px);
+        animation: modal-fade-in 120ms ease-out;
+    }
+    .modal-card {
+        background-color: rgb(var(--c-panel));
+        color: rgb(var(--c-text));
+        border: 1px solid rgb(var(--c-overlay) / 0.1);
+        border-radius: 0.75rem;
+        padding: 1.25rem;
+        box-shadow:
+            0 20px 25px -5px rgb(0 0 0 / 0.3),
+            0 8px 10px -6px rgb(0 0 0 / 0.2);
+        outline: none;
+        animation: modal-pop-in 150ms cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    @keyframes modal-fade-in {
+        from {
+            opacity: 0;
+        }
+        to {
+            opacity: 1;
+        }
+    }
+    @keyframes modal-pop-in {
+        from {
+            opacity: 0;
+            transform: translateY(8px) scale(0.98);
+        }
+        to {
+            opacity: 1;
+            transform: translateY(0) scale(1);
+        }
+    }
+
+    /* 尊重用户的「减少动态」偏好 */
+    @media (prefers-reduced-motion: reduce) {
+        .modal-backdrop,
+        .modal-card {
+            animation-duration: 1ms;
+        }
+    }
 }

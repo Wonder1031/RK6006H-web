@@ -10,7 +10,7 @@ interface GaugeProps {
 }
 
 const ACCENT_COLOR: Record<NonNullable<GaugeProps['accent']>, string> = {
-  default: 'text-slate-100',
+  default: 'text-ink',
   ok: 'text-accent-ok',
   warn: 'text-accent-warn',
   danger: 'text-accent-danger',
@@ -26,12 +26,12 @@ export function Gauge({
   const display = value == null ? '--' : value.toFixed(digits);
   return (
     <div className="panel flex flex-col items-center justify-center gap-1 py-5">
-      <span className="text-xs uppercase tracking-wider text-slate-400">
+      <span className="text-xs uppercase tracking-wider text-ink-muted">
         {label}
       </span>
       <span className={`num text-4xl font-semibold ${ACCENT_COLOR[accent]}`}>
         {display}
-        <span className="ml-1 text-lg text-slate-400">{unit}</span>
+        <span className="ml-1 text-lg text-ink-muted">{unit}</span>
       </span>
     </div>
   );

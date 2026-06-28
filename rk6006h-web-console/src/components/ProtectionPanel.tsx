@@ -18,21 +18,21 @@ export function ProtectionPanel() {
   return (
     <div className="panel flex flex-col gap-2">
       <div className="flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-slate-200">保护设置</h3>
+        <h3 className="text-sm font-semibold text-ink">保护设置</h3>
         <button
           type="button"
           onClick={() => void refresh()}
-          className="rounded bg-surface-raised px-2 py-1 text-xs text-slate-300 hover:bg-white/10"
+          className="rounded bg-surface-raised px-2 py-1 text-xs text-ink-muted hover:bg-overlay/10"
         >
           刷新
         </button>
       </div>
 
       {!protection ? (
-        <p className="text-xs text-slate-500">未读取</p>
+        <p className="text-xs text-ink-faint">未读取</p>
       ) : (
         <table className="text-sm">
-          <thead className="text-xs text-slate-400">
+          <thead className="text-xs text-ink-muted">
             <tr>
               <th className="py-1 text-left font-normal">项目</th>
               <th className="py-1 text-right font-normal">阈值</th>
@@ -51,7 +51,7 @@ export function ProtectionPanel() {
         </table>
       )}
 
-      <p className="text-xs text-slate-500">
+      <p className="text-xs text-ink-faint">
         阈值工程值含义待确认（raw 系数字段未标定），暂仅显示原始读数。
       </p>
     </div>
@@ -66,10 +66,10 @@ function ProtectionRow({
   entry: ProtectionEntry;
 }) {
   return (
-    <tr className="border-t border-white/5">
-      <td className="py-1 text-left font-sans text-slate-300">{label}</td>
-      <td className="py-1 text-right text-slate-100">{entry.threshold}</td>
-      <td className="py-1 text-right text-slate-400">0x{entry.raw.toString(16).toUpperCase()}</td>
+    <tr className="border-t border-overlay/5">
+      <td className="py-1 text-left font-sans text-ink-muted">{label}</td>
+      <td className="py-1 text-right text-ink">{entry.threshold}</td>
+      <td className="py-1 text-right text-ink-muted">0x{entry.raw.toString(16).toUpperCase()}</td>
     </tr>
   );
 }

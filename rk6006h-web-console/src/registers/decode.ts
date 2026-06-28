@@ -30,12 +30,18 @@ function getAt(regs: number[], baseAddr: number, absAddr: number): number {
 /**
  * 解码系统信息区（只读固定字段）。
  * @param regs 对应 0x0000 起的读结果（至少 4 个寄存器）
+ *
+ * 序列号 = SERIAL_HIGH(0x0001) << 16 | SERIAL_LOW(0x0002)，>>>0 取无符号；
+ * 固件版本在 0x0003（真机确认：0x0072=114 → V1.14）。
  */
 export function decodeDeviceInfo(regs: number[]): DeviceInfo {
   const base = 0x0000;
+  const serialHigh = getAt(regs, base, REG.SERIAL_HIGH);
+  const serialLow = getAt(regs, base, REG.SERIAL_LOW);
   return {
     modelHigh: getAt(regs, base, REG.MODEL_HIGH),
     firmwareRaw: getAt(regs, base, REG.FIRMWARE),
+    serialRaw: ((serialHigh << 16) | serialLow) >>> 0,
   };
 }
 

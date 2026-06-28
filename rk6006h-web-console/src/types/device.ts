@@ -5,18 +5,26 @@
  */
 
 // ─── 系统信息（0x0000 ~ 0x0003，只读固定）──────────────────────
+// 真机确认（2026-06-28）：0x0001+0x0002 = 32 位序列号；0x0003 = 固件版本。
 export interface DeviceInfo {
   /** 设备标识高字（0x0000） */
   modelHigh: number;
-  /** 固件版本原始值（0x0002），如 0x0231 = 561 */
+  /** 固件版本原始值（0x0003），如 0x0072 = 114 → V1.14 */
   firmwareRaw: number;
+  /** 序列号（SERIAL_HIGH(0x0001) << 16 | SERIAL_LOW(0x0002)），如 561 → 00000561 */
+  serialRaw: number;
 }
 
-/** 固件版本原始值 → 可读字符串（561 → v5.61） */
+/** 固件版本原始值 → 可读字符串（114 → v1.14；百位前为 major、百位后为 minor） */
 export function formatFirmware(raw: number): string {
   const major = Math.floor(raw / 100);
   const minor = raw % 100;
   return `v${major}.${String(minor).padStart(2, '0')}`;
+}
+
+/** 序列号 → 8 位零填充字符串（561 → 00000561） */
+export function formatSerial(raw: number): string {
+  return String(raw >>> 0).padStart(8, '0');
 }
 
 // ─── 实时遥测（主轮询窗口解码结果）──────────────────────────────

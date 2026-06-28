@@ -24,6 +24,18 @@ export class ModbusTransportError extends Error {
   }
 }
 
+/** 请求选项（request / readHolding 共用）。 */
+export interface RequestOptions {
+  /** 超时（ms），缺省取构造时的 defaultTimeout。 */
+  timeoutMs?: number;
+  /**
+   * 是否容忍 CRC 校验失败。默认 **false**：CRC 校验失败即 reject
+   * （契约收紧 —— 调用方不再需要每次手判 crcOk）。
+   * 设 true 时按"尽力解析"返回 crcOk=false 的响应，仅诊断场景使用。
+   */
+  allowCrcFail?: boolean;
+}
+
 interface Pending {
   resolve: (frame: Uint8Array) => void;
   reject: (err: unknown) => void;
@@ -72,20 +84,27 @@ export class ModbusTransport {
   /**
    * 发送请求并等待解析后的响应。
    * 多次调用自动串行排队。
+   *
+   * 契约：默认对 CRC 校验失败的响应 reject（ModbusTransportError）；
+   * 需要诊断原始坏帧时传 `{ allowCrcFail: true }` 获取 crcOk=false 的结果。
    */
-  request(
-    req: Uint8Array,
-    timeoutMs: number = this.defaultTimeout,
-  ): Promise<ParsedResponse> {
-    const run = (): Promise<ParsedResponse> => this.exchange(req, timeoutMs);
+  request(req: Uint8Array, opts: RequestOptions = {}): Promise<ParsedResponse> {
+    const timeoutMs = opts.timeoutMs ?? this.defaultTimeout;
+    const allowCrcFail = opts.allowCrcFail ?? false;
+    const run = (): Promise<ParsedResponse> =>
+      this.exchange(req, timeoutMs, allowCrcFail);
     // .then(run, run) 保证上一请求无论成功/失败都继续执行本请求
     this.chain = this.chain.then(run, run);
     return this.chain as Promise<ParsedResponse>;
   }
 
-  /** 便捷：读保持寄存器并解析。 */
-  readHolding(addr: number, qty: number): Promise<ParsedResponse> {
-    return this.request(buildReadHolding(addr, qty));
+  /** 便捷：读保持寄存器并解析。opts 透传给 request。 */
+  readHolding(
+    addr: number,
+    qty: number,
+    opts?: RequestOptions,
+  ): Promise<ParsedResponse> {
+    return this.request(buildReadHolding(addr, qty), opts);
   }
 
   /** 是否有请求正在处理。 */
@@ -98,6 +117,7 @@ export class ModbusTransport {
   private exchange(
     req: Uint8Array,
     timeoutMs: number,
+    allowCrcFail: boolean,
   ): Promise<ParsedResponse> {
     return new Promise<ParsedResponse>((resolve, reject) => {
       this.rxBuffer = [];
@@ -108,7 +128,8 @@ export class ModbusTransport {
       );
       // 注意：pending.resolve 持有「帧级」回调；解析在 settleParsed 中完成。
       this.pending = {
-        resolve: (frame) => this.settleParsed(frame, resolve, reject),
+        resolve: (frame) =>
+          this.settleParsed(frame, resolve, reject, allowCrcFail),
         reject,
         timer,
       };
@@ -120,18 +141,25 @@ export class ModbusTransport {
     });
   }
 
-  /** 帧已收齐 → 校验日志 → 解析 → settle。 */
+  /** 帧已收齐 → 记日志 → CRC 契约 → 解析 → settle。 */
   private settleParsed(
     frame: Uint8Array,
     resolve: (p: ParsedResponse) => void,
     reject: (e: unknown) => void,
+    allowCrcFail: boolean,
   ): void {
+    const crcOk = verifyCrc(frame);
     this.log({
       direction: "rx",
       bytes: frame,
       timestamp: Date.now(),
-      crcOk: verifyCrc(frame),
+      crcOk,
     });
+    // 契约：CRC 失败默认 reject（坏帧不可信）。allowCrcFail 为诊断逃生口。
+    if (!crcOk && !allowCrcFail) {
+      reject(new ModbusTransportError("CRC 校验失败：响应帧损坏"));
+      return;
+    }
     try {
       resolve(parseResponse(frame));
     } catch (e) {

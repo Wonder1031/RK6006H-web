@@ -8,9 +8,9 @@ import type { BleAdapter } from '@/ble/BleAdapter';
 
 /** 模拟设备内存（地址 → 值） */
 const deviceMemory = new Map<number, number>([
-  [0x0002, 0x0231], // 固件
-  [0x0008, 0x04b0], // 电压系数 1200
-  [0x0009, 0x175a], // 电流系数 5978
+  [0x0002, 0x0231], // 序列号低字（固件在 0x0003）
+  [0x0008, 0x04b0], // 电压设定原始（12.00V）
+  [0x0009, 0x175a], // 电流设定原始
   [0x000e, 0x0aee], // 温度
   [0x0012, 0x0001], // 输出 ON
 ]);
@@ -171,7 +171,7 @@ describe('ModbusTransport — 异常与 CRC', () => {
     expect(resp.kind).toBe('exception');
   });
 
-  it('CRC 错误帧仍解析但 crcOk=false', async () => {
+  it('CRC 错误帧默认 reject（契约收紧）', async () => {
     const adapter = new FakeBleAdapter({
       responder: () => {
         const frame = readResponse([0x0001]);
@@ -182,7 +182,25 @@ describe('ModbusTransport — 异常与 CRC', () => {
     });
     const transport = new ModbusTransport(adapter);
     transport.start();
-    const resp = await transport.readHolding(0x0001, 1);
+    await expect(transport.readHolding(0x0001, 1)).rejects.toThrow(
+      ModbusTransportError,
+    );
+  });
+
+  it('allowCrcFail 逃生口返回 crcOk=false 的坏帧（诊断用）', async () => {
+    const adapter = new FakeBleAdapter({
+      responder: () => {
+        const frame = readResponse([0x0001]);
+        const last = frame.length - 1;
+        frame[last] = (frame[last] ?? 0) ^ 0xff; // 破坏 CRC
+        return frame;
+      },
+    });
+    const transport = new ModbusTransport(adapter);
+    transport.start();
+    const resp = await transport.readHolding(0x0001, 1, {
+      allowCrcFail: true,
+    });
     expect(resp.crcOk).toBe(false);
   });
 });

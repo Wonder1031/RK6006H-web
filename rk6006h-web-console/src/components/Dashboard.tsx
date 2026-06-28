@@ -33,7 +33,7 @@ export function Dashboard() {
         <Info label="温度" value={fmt(t?.temperature, 2, ' ℃')} />
       </div>
 
-      <p className="text-xs text-slate-500">
+      <p className="text-xs text-ink-faint">
         缩放：V/100、I/1000、温度/100（真机确认）；功率 = V×I 计算。
       </p>
     </div>
@@ -43,8 +43,8 @@ export function Dashboard() {
 function Info({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex flex-col">
-      <span className="text-xs text-slate-400">{label}</span>
-      <span className="num text-slate-100">{value}</span>
+      <span className="text-xs text-ink-muted">{label}</span>
+      <span className="num text-ink">{value}</span>
     </div>
   );
 }

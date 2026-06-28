@@ -14,11 +14,12 @@ import {
   POLL_REGISTER_COUNT,
   POLL_START_ADDRESS,
 } from "@/config/constants";
-import { MockBleAdapter } from "@/ble/MockBleAdapter";
+import { MockBleAdapter, type MockFault } from "@/ble/MockBleAdapter";
 import { WebBluetoothAdapter } from "@/ble/WebBluetoothAdapter";
 import type { BleAdapter } from "@/ble/BleAdapter";
 import { buildWriteMultiple, buildWriteSingle } from "@/modbus/frames";
 import { ModbusTransport, type FrameLogger } from "@/modbus/transport";
+import { describeException } from "@/modbus/exceptions";
 import {
   decodeProtection,
   decodeTelemetry,
@@ -32,13 +33,28 @@ import {
 } from "@/registers/encode";
 import { PROTECTION_READ, REG } from "@/registers/map";
 import type { DeviceInfo, Preset, Protection, Telemetry } from "@/types/device";
-import type { FrameLogEntry } from "@/types/modbus";
+import type { FrameLogEntry, ParsedResponse } from "@/types/modbus";
 import { loadSetting, SettingKey } from "@/utils/storage";
+import { isSoundEnabled, setSoundEnabled, triggerAlert } from "@/utils/alerts";
+import { useSessionStore } from "@/store/sessionStore";
+
+/** 活跃告警（UI 顶部 toast / 闪烁） */
+export interface ActiveAlert {
+  title: string;
+  body?: string;
+  /** 触发时刻（ms） */
+  at: number;
+}
 
 export type ConnStatus = "disconnected" | "connecting" | "connected" | "error";
 
+/** 连接过程中的步骤（P1-8：替代单一「连接中…」）。 */
+export type ConnectStep = null | "link" | "info" | "protection" | "live";
+
 interface DeviceState {
   status: ConnStatus;
+  /** 连接过程中的当前步骤（仅 status==='connecting' 有意义）。 */
+  connectStep: ConnectStep;
   error: string | null;
   deviceName: string | null;
   isMock: boolean;
@@ -47,6 +63,14 @@ interface DeviceState {
   protection: Protection | null;
   log: FrameLogEntry[];
   history: Telemetry[];
+  /** 连续轮询失败次数（成功一次即归零）。用于"通信不稳定"判定。 */
+  pollFailures: number;
+  /** 最近一次轮询收到的设备异常说明（如「非法地址」）；成功后清空。 */
+  lastException: string | null;
+  /** 活跃告警（如检测到输出异常断开）；null 表示无。 */
+  activeAlert: ActiveAlert | null;
+  /** 告警声音是否开启（持久化）。 */
+  soundEnabled: boolean;
 
   connect: (opts?: { mock?: boolean }) => Promise<void>;
   disconnect: () => Promise<void>;
@@ -60,6 +84,16 @@ interface DeviceState {
   refreshProtection: () => Promise<void>;
   clearError: () => void;
   clearLog: () => void;
+  /** 清空实时趋势历史缓冲（不影响已落库的会话记录）。 */
+  clearHistory: () => void;
+  /** 关闭当前活跃告警 toast。 */
+  dismissAlert: () => void;
+  /** 开关告警声音（持久化）。 */
+  setSound: (on: boolean) => void;
+  /** 仅 Mock 模式：注入 / 清除通信故障（离线演示与测试）。真机模式为空操作。 */
+  injectFault: (fault: MockFault) => void;
+  /** 仅 Mock 模式：直接改写设备寄存器（模拟设备侧状态变化，如保护触发）。 */
+  setMockRegister: (addr: number, value: number) => void;
 }
 
 // ─── 模块级会话对象（不参与响应式渲染）──────────────────────────
@@ -68,12 +102,32 @@ let transport: ModbusTransport | null = null;
 let pollTimer: ReturnType<typeof setInterval> | null = null;
 let frameSeq = 0;
 let manualDisconnect = false;
+/** 最近一次用户主动设定的输出目标（true=开 / false=关）；轮询据此区分「用户关输出」与「设备异常断开（疑似保护触发）」。 */
+let outputIntent: boolean | null = null;
 const RECONNECT_MAX_ATTEMPTS = 3;
 const RECONNECT_BASE_MS = 1000;
 
 const pushLog: FrameLogger = (entry) => {
   useDeviceStore.getState().appendLog(entry);
 };
+
+/**
+ * 校验写响应：异常帧 / CRC 失败时抛出可读错误。
+ * CRC 默认由传输层在 request 中已 reject（P0-3），此处作防御兜底。
+ */
+function assertWriteOk(resp: ParsedResponse): void {
+  if (resp.kind === "exception") {
+    throw new Error(`设备返回 ${describeException(resp.exception)}`);
+  }
+  if (!resp.crcOk) {
+    throw new Error("响应 CRC 校验失败");
+  }
+}
+
+/** 从任意错误对象取可读消息。 */
+function errorMessage(e: unknown): string {
+  return e instanceof Error ? e.message : String(e);
+}
 
 function delay(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
@@ -99,6 +153,7 @@ interface DeviceStoreInternal extends DeviceState {
 
 export const useDeviceStore = create<DeviceStoreInternal>((set, get) => ({
   status: "disconnected",
+  connectStep: null,
   error: null,
   deviceName: null,
   isMock: false,
@@ -107,6 +162,10 @@ export const useDeviceStore = create<DeviceStoreInternal>((set, get) => ({
   protection: null,
   log: [],
   history: [],
+  pollFailures: 0,
+  lastException: null,
+  activeAlert: null,
+  soundEnabled: isSoundEnabled(),
 
   appendLog: (entry) =>
     set((s) => {
@@ -118,7 +177,7 @@ export const useDeviceStore = create<DeviceStoreInternal>((set, get) => ({
   connect: async (opts) => {
     if (get().status === "connecting" || get().status === "connected") return;
     manualDisconnect = false;
-    set({ status: "connecting", error: null });
+    set({ status: "connecting", connectStep: "link", error: null });
     const useMock = opts?.mock ?? loadSetting<boolean>(SettingKey.mock, false);
 
     try {
@@ -142,35 +201,46 @@ export const useDeviceStore = create<DeviceStoreInternal>((set, get) => ({
       // HM-10 链路稳定窗口：GATT 连接刚建立时首帧易丢失/损坏
       await delay(300);
 
+      // 开启会话记录（IndexedDB 长历史）；刷新历史列表
+      await useSessionStore.getState().startSession(name, useMock);
+      void useSessionStore.getState().refreshSessions();
+
       // GATT 已连接。后续数据读取为「增强」，任何失败都不阻断连接——
       // 首帧不稳定时降级进入 connected，轮询会持续重试补齐数据。
       const warnings: string[] = [];
 
       // 1) 系统信息（型号 / 固件）—— 降级容错
+      // CRC 失败由传输层 reject；异常帧在此识别为 warning。
+      set({ connectStep: "info" });
       let info: DeviceInfo | null = null;
       try {
         const infoResp = await transport.readHolding(0x0000, 4);
-        if (infoResp.kind === "read" && infoResp.crcOk) {
+        if (infoResp.kind === "read") {
           info = decodeDeviceInfo(infoResp.registers);
+        } else if (infoResp.kind === "exception") {
+          warnings.push(`系统信息异常：${describeException(infoResp.exception)}`);
         } else {
-          warnings.push("系统信息响应异常");
+          warnings.push("系统信息响应类型异常");
         }
-      } catch {
-        warnings.push("系统信息读取超时");
+      } catch (e) {
+        warnings.push(`系统信息读取失败：${errorMessage(e)}`);
       }
 
-      // 2) 保护设置 —— 降级容错（不阻断连接）
+      // 2) 保护设置 —— 降级容错（不阻断连接）。异常帧 → refreshProtection 抛友好错误。
+      set({ connectStep: "protection" });
       try {
         await get().refreshProtection();
-      } catch {
-        warnings.push("保护设置读取失败");
+      } catch (e) {
+        warnings.push(`保护设置读取失败：${errorMessage(e)}`);
       }
 
       // 3) 首次遥测 —— 已有内部容错
+      set({ connectStep: "live" });
       await get().pollOnce();
 
       set({
         status: "connected",
+        connectStep: null,
         deviceName: name,
         isMock: useMock,
         info,
@@ -184,6 +254,7 @@ export const useDeviceStore = create<DeviceStoreInternal>((set, get) => ({
       stopPolling();
       set({
         status: "error",
+        connectStep: null,
         error: e instanceof Error ? e.message : String(e),
       });
       if (transport) {
@@ -199,7 +270,10 @@ export const useDeviceStore = create<DeviceStoreInternal>((set, get) => ({
 
   disconnect: async () => {
     manualDisconnect = true;
+    outputIntent = null;
     stopPolling();
+    // 结束会话记录并刷新历史
+    await useSessionStore.getState().endSession();
     if (transport) {
       transport.stop();
       transport = null;
@@ -210,12 +284,16 @@ export const useDeviceStore = create<DeviceStoreInternal>((set, get) => ({
     }
     set({
       status: "disconnected",
+      connectStep: null,
       deviceName: null,
       info: null,
       telemetry: null,
       protection: null,
       history: [],
       error: null,
+      pollFailures: 0,
+      lastException: null,
+      activeAlert: null,
     });
   },
 
@@ -226,48 +304,108 @@ export const useDeviceStore = create<DeviceStoreInternal>((set, get) => ({
         POLL_START_ADDRESS,
         POLL_REGISTER_COUNT,
       );
-      if (resp.kind === "read" && resp.crcOk) {
-        const telemetry = decodeTelemetry(resp.registers);
+      // CRC 失败已在传输层 reject（P0-3）；此处只需处理异常帧。
+      if (resp.kind === "exception") {
         set((s) => ({
-          telemetry,
-          history:
-            s.history.length >= HISTORY_MAX
-              ? [...s.history.slice(1), telemetry]
-              : [...s.history, telemetry],
+          pollFailures: s.pollFailures + 1,
+          lastException: describeException(resp.exception),
         }));
+        return;
       }
+      // 读请求不应回写响应；防御性地计为失败。
+      if (resp.kind !== "read") {
+        set((s) => ({ pollFailures: s.pollFailures + 1 }));
+        return;
+      }
+      const telemetry = decodeTelemetry(resp.registers);
+      const prev = get().telemetry;
+      // 输出异常断开检测：上一帧为开、本帧为关，且不是用户刚主动关的 → 疑似保护触发
+      const prevOn = prev?.outputOn ?? false;
+      const tripDetected =
+        prevOn && !telemetry.outputOn && outputIntent !== false;
+      const expectedUserOff = outputIntent === false;
+      outputIntent = null; // 消费意图（已反映到遥测）
+      set((s) => ({
+        telemetry,
+        history:
+          s.history.length >= HISTORY_MAX
+            ? [...s.history.slice(1), telemetry]
+            : [...s.history, telemetry],
+        pollFailures: 0,
+        lastException: null,
+        activeAlert:
+          tripDetected && !expectedUserOff
+            ? {
+                title: "⚠ 输出异常断开",
+                body: "检测到非用户操作的输出关闭，可能触发保护（OVP/OCP/OAH 等）",
+                at: Date.now(),
+              }
+            : s.activeAlert,
+      }));
+      if (tripDetected && !expectedUserOff) {
+        triggerAlert("RK6006H 输出异常断开", "可能触发保护，请检查 OVP/OCP 设置");
+      }
+      // 落库（长会话历史）；fire-and-forget，不阻塞轮询
+      void useSessionStore.getState().recordPoint(telemetry);
     } catch {
-      // 单次轮询失败不致命；断连由 onDisconnect 处理
+      // 超时 / 传输错误：累计失败计数，断连由 onDisconnect 兜底。
+      set((s) => ({ pollFailures: s.pollFailures + 1 }));
     }
   },
 
   setOutput: async (on) => {
     if (!transport) return;
     const op = outputOnOff(on);
-    await transport.request(buildWriteSingle(op.address, op.value));
-    await get().pollOnce();
+    outputIntent = on; // 标记用户意图，供 pollOnce 区分用户关输出与异常断开
+    try {
+      assertWriteOk(await transport.request(buildWriteSingle(op.address, op.value)));
+      await get().pollOnce();
+      set({ error: null });
+    } catch (e) {
+      outputIntent = null;
+      set({ error: `输出切换失败：${errorMessage(e)}` });
+    }
   },
 
   setVoltage: async (volts) => {
     if (!transport) return;
-    await transport.request(
-      buildWriteSingle(REG.V_SETPOINT, encodeVoltageSetpoint(volts)),
-    );
-    await get().pollOnce();
+    try {
+      assertWriteOk(
+        await transport.request(
+          buildWriteSingle(REG.V_SETPOINT, encodeVoltageSetpoint(volts)),
+        ),
+      );
+      await get().pollOnce();
+      set({ error: null });
+    } catch (e) {
+      set({ error: `电压设定失败：${errorMessage(e)}` });
+    }
   },
 
   setCurrent: async (amps) => {
     if (!transport) return;
-    await transport.request(
-      buildWriteSingle(REG.I_SETPOINT, encodeCurrentSetpoint(amps)),
-    );
-    await get().pollOnce();
+    try {
+      assertWriteOk(
+        await transport.request(
+          buildWriteSingle(REG.I_SETPOINT, encodeCurrentSetpoint(amps)),
+        ),
+      );
+      await get().pollOnce();
+      set({ error: null });
+    } catch (e) {
+      set({ error: `电流设定失败：${errorMessage(e)}` });
+    }
   },
 
   applyPresets: async (presets) => {
     if (!transport) return;
-    const values = encodePresets(presets);
-    await transport.request(buildWriteMultiple(REG.PRESET_BASE, values));
+    try {
+      const values = encodePresets(presets);
+      assertWriteOk(await transport.request(buildWriteMultiple(REG.PRESET_BASE, values)));
+      set({ error: null });
+    } catch (e) {
+      set({ error: `预设组写入失败：${errorMessage(e)}` });
+    }
   },
 
   attemptReconnect: async () => {
@@ -298,11 +436,26 @@ export const useDeviceStore = create<DeviceStoreInternal>((set, get) => ({
       PROTECTION_READ.start,
       PROTECTION_READ.count,
     );
-    if (resp.kind === "read" && resp.crcOk) {
+    if (resp.kind === "exception") {
+      throw new Error(`设备返回 ${describeException(resp.exception)}`);
+    }
+    if (resp.kind === "read") {
       set({ protection: decodeProtection(resp.registers) });
     }
   },
 
   clearError: () => set({ error: null }),
   clearLog: () => set({ log: [] }),
+  clearHistory: () => set({ history: [] }),
+  dismissAlert: () => set({ activeAlert: null }),
+  setSound: (on) => {
+    setSoundEnabled(on);
+    set({ soundEnabled: on });
+  },
+  injectFault: (fault) => {
+    if (adapter instanceof MockBleAdapter) adapter.setFault(fault);
+  },
+  setMockRegister: (addr, value) => {
+    if (adapter instanceof MockBleAdapter) adapter.setRegister(addr, value);
+  },
 }));

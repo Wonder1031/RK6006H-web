@@ -35,6 +35,34 @@ npm run dev      # 浏览器打开 http://127.0.0.1:5173
 | `npm test` | 运行单测（vitest） |
 | `npm run typecheck` | 仅类型检查 |
 
+## 部署（GitHub Pages，自动）
+
+推送到 `main` 分支后，[`.github/workflows/deploy.yml`](.github/workflows/deploy.yml) 会自动构建并部署到：
+
+**https://wonder1031.github.io/RK6006H-web/**
+
+### 一次性启用（只需做一次）
+
+1. 打开仓库 → **Settings** → **Pages**
+2. **Build and deployment** → **Source** 选择 **`GitHub Actions`**（不是 Deploy from a branch）
+3. 保存。下次推 `main` 即自动部署
+
+### 手动触发
+
+仓库 → **Actions** → **Deploy to GitHub Pages** → **Run workflow**
+
+### 子路径说明
+
+本仓库名为 `RK6006H-web`（非 `<user>.github.io`），Pages 挂在子路径 `/RK6006H-web/`。
+Workflow 通过 [`actions/configure-pages`](https://github.com/actions/configure-pages) 自动检测子路径并以 `--base` 传给 Vite，
+资源/Service Worker/manifest 路径都会自动改写，无需手动维护。
+
+### 访问约束
+
+- **必须 Chromium 内核浏览器**（Chrome / Edge / Opera / Brave）——Web Bluetooth API 仅它们实现
+- **必须 HTTPS**（Pages 自带 HTTPS，已满足）——HTTP 下 `navigator.bluetooth` 不存在
+- **需 PC 蓝牙**：手机 Chrome 也不完全支持 Web Bluetooth
+
 ## 架构
 
 ```

@@ -17,16 +17,29 @@ import { formatFirmware } from '@/types/device';
 // ─── 系统信息（§7.1）────────────────────────────────────────────
 
 describe('decodeDeviceInfo — §7.1 真机样本', () => {
-  it('解码型号 / 固件', () => {
+  // [MODEL_HIGH=0x0000, SERIAL_HIGH=0x0001, SERIAL_LOW=0x0002, FIRMWARE=0x0003]
+  it('解码型号 / 固件（固件在 0x0003）', () => {
     const info = decodeDeviceInfo([0xeaa3, 0x0000, 0x0231, 0x0072]);
     expect(info.modelHigh).toBe(0xeaa3);
-    expect(info.firmwareRaw).toBe(0x0231);
+    expect(info.firmwareRaw).toBe(0x0072); // = 114 → V1.14
+  });
+
+  it('序列号 = SERIAL_HIGH<<16 | SERIAL_LOW（无符号）', () => {
+    // SERIAL_HIGH=0x0001, SERIAL_LOW=0x0231 → 0x00010231
+    const info = decodeDeviceInfo([0xeaa3, 0x0001, 0x0231, 0x0072]);
+    expect(info.serialRaw).toBe(0x00010231);
+  });
+
+  it('真机样本：序列号 561 / 固件 114', () => {
+    const info = decodeDeviceInfo([0xeaa3, 0x0000, 0x0231, 0x0072]);
+    expect(info.serialRaw).toBe(561); // → 00000561
+    expect(info.firmwareRaw).toBe(114); // → V1.14
   });
 });
 
 describe('formatFirmware', () => {
-  it('0x0231 = 561 → v5.61', () => {
-    expect(formatFirmware(0x0231)).toBe('v5.61');
+  it('0x0072 = 114 → v1.14（真机固件）', () => {
+    expect(formatFirmware(0x0072)).toBe('v1.14');
   });
 });
 

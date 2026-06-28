@@ -51,7 +51,7 @@ export function ValueControl({
   return (
     <div className="flex flex-col gap-1.5" data-testid={testId}>
       <div className="flex items-baseline justify-between">
-        <span className="text-xs text-slate-400">{label}</span>
+        <span className="text-xs text-ink-muted">{label}</span>
         <span className="flex items-baseline gap-1">
           <input
             type="number"
@@ -64,9 +64,9 @@ export function ValueControl({
               if (!Number.isNaN(n)) onChange(n);
             }}
             disabled={disabled}
-            className="num w-20 rounded bg-surface-raised px-2 py-0.5 text-right text-base font-semibold text-slate-100 outline-none focus:ring-1 focus:ring-accent disabled:opacity-40"
+            className="num w-20 rounded bg-surface-raised px-2 py-0.5 text-right text-base font-semibold text-ink outline-none focus:ring-1 focus:ring-accent disabled:opacity-40"
           />
-          <span className="w-4 text-xs text-slate-500">{unit}</span>
+          <span className="w-4 text-xs text-ink-faint">{unit}</span>
         </span>
       </div>
       <input
